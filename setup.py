@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-import sys
 from os import path
 
 from setuptools import find_packages, setup
@@ -10,10 +8,6 @@ this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, "README.md"), encoding="utf-8") as readme:
     long_description = readme.read()
 
-extra = {}
-if sys.version_info >= (3, 4):
-    extra["use_2to3"] = False
-    extra["convert_2to3_doctests"] = ["README.md"]
 
 CLASSIFIERS = [
     "Development Status :: 5 - Production/Stable",
@@ -42,8 +36,20 @@ TESTS_REQUIRE = [
     "uvloop>=0.14.0",
 ]
 
-# Allow you to run pip install .[test] to get test dependencies included
-EXTRAS_REQUIRE = {"test": TESTS_REQUIRE}
+DEV_REQUIRE = [
+    *TESTS_REQUIRE,
+    "isort>=5.13.0",
+    "ruff>=0.4.0",
+    "black>=24.0.0",
+    "mypy>=1.10.0",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+]
+
+EXTRAS_REQUIRE = {
+    "test": TESTS_REQUIRE,
+    "dev": DEV_REQUIRE,
+}
 
 setup(
     name="gmqtt",
@@ -53,9 +59,9 @@ setup(
     long_description_content_type="text/markdown",
     author=gmqtt.__author__,
     author_email=gmqtt.__email__,
-    license='MIT',
+    license="MIT",
     url="https://github.com/wialon/gmqtt",
-    packages=find_packages(exclude=['examples', 'tests']),
+    packages=find_packages(exclude=["examples", "tests"]),
     download_url="https://github.com/wialon/gmqtt",
     classifiers=CLASSIFIERS,
     keywords=KEYWORDS,
@@ -64,5 +70,5 @@ setup(
     install_requires=[],
     tests_require=TESTS_REQUIRE,
     extras_require=EXTRAS_REQUIRE,
-    python_requires='>=3.5',
+    python_requires=">=3.5",
 )

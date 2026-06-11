@@ -1,10 +1,11 @@
 import struct
 import logging
+from dataclasses import dataclass
 from typing import Tuple
 
 from .constants import MQTTCommands, MQTTv50
 from .property import Property
-from .utils import pack_variable_byte_integer, IdGenerator
+from .utils import pack_variable_byte_integer
 
 logger = logging.getLogger(__name__)
 
@@ -12,16 +13,14 @@ LAST_MID = 0
 USED_IDS = set()
 
 
-class Packet(object):
+@dataclass
+class Package:
     __slots__ = ['cmd', 'data']
-
-    def __init__(self, cmd, data):
-        self.cmd = cmd
-        self.data = data
+    cmd: int
+    data: bytes
 
 
-class PackageFactory(object):
-    id_generator = IdGenerator()
+class PackageFactory:
 
     @classmethod
     async def parse_package(cls, cmd, package):
@@ -128,7 +127,7 @@ class UnsubscribePacket(PackageFactory):
         packet = bytearray()
         packet.append(command)
         packet.extend(pack_variable_byte_integer(remaining_length))
-        local_mid = cls.id_generator.next_id()
+        local_mid = protocol.id_generator.next_id()
         packet.extend(struct.pack("!H", local_mid))
         packet.extend(properties)
         for t in topics:
@@ -175,7 +174,7 @@ class SubscribePacket(PackageFactory):
         packet = bytearray()
         packet.append(command)
         packet.extend(pack_variable_byte_integer(remaining_length))
-        local_mid = cls.id_generator.next_id()
+        local_mid = protocol.id_generator.next_id()
         packet.extend(struct.pack("!H", local_mid))
         packet.extend(properties)
         for s in subscriptions:
@@ -220,7 +219,7 @@ class PublishPacket(PackageFactory):
 
         if message.qos > 0:
             # For message id
-            mid = cls.id_generator.next_id()
+            mid = protocol.id_generator.next_id()
             packet.extend(struct.pack("!H", mid))
         else:
             mid = None

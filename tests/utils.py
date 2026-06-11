@@ -49,7 +49,7 @@ class Callbacks:
         client.on_subscribe = self.on_subscribe
 
 
-async def clean_retained(host, port, username, password=None, prefix=None):
+async def clean_retained(host, port, username, password=None, prefix=None, wait=2):
     def on_message(client, topic, payload, qos, properties):
         curclient.publish(topic, b"", qos=0, retain=True)
 
@@ -60,7 +60,7 @@ async def clean_retained(host, port, username, password=None, prefix=None):
     await curclient.connect(host=host, port=port)
     topic = '#' if not prefix else prefix + '#'
     curclient.subscribe(topic)
-    await asyncio.sleep(10)  # wait for all retained messages to arrive
+    await asyncio.sleep(wait)  # wait for retained messages to arrive; tune via `wait=` if there are many topics
     await curclient.disconnect()
     time.sleep(.1)
 
