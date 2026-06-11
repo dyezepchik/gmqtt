@@ -65,7 +65,7 @@ def _make_handler():
     async def fake_resend():
         resend_calls.append("resend")
 
-    async def fake_clear():
+    def fake_clear():
         clear_calls.append("clear")
 
     async def fake_reconnect(delay=False):

@@ -37,12 +37,12 @@ class PersistentStorage:
     def push_message(self, mid, raw_package):
         self._messages[mid] = raw_package
 
-    async def remove_message_by_mid(self, mid):
+    def remove_message_by_mid(self, mid):
         if self._messages.pop(mid, None) is not None:
             self._check_empty()
 
     @property
-    async def is_empty(self):
+    def is_empty(self):
         return not self._messages
 
     async def wait_empty(self) -> None:
@@ -51,10 +51,10 @@ class PersistentStorage:
             self._empty_waiters.add(waiter)
             await waiter
 
-    async def clear(self):
+    def clear(self):
         self._messages.clear()
         self._notify_waiters(lambda waiter: waiter.set_result(None))
 
-    async def get_all(self):
+    def get_all(self):
         # Returns a snapshot list of (mid, package) pairs in insertion order.
         return list(self._messages.items())

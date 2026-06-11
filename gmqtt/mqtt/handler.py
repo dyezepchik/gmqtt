@@ -15,6 +15,7 @@ from .utils import (
     run_coroutine_or_function,
     unpack_variable_byte_integer,
 )
+from ..subscription import Subscription
 
 
 def _empty_callback(*args, **kwargs):
@@ -152,12 +153,12 @@ class MqttPackageHandler(EventCallbackMixin):
         *args,
         connack_event: asyncio.Event,
         connection_state: ConnectionState,
-        reconnect_callback: Callable[..., Awaitable],
-        disconnect_callback: Callable[..., Awaitable],
-        resend_qos_callback: Callable[[], Awaitable],
-        clear_qos_callback: Callable[[], Awaitable],
+        reconnect_callback: Callable[..., Awaitable[None]],
+        disconnect_callback: Callable[..., Awaitable[None]],
+        resend_qos_callback: Callable[[], Awaitable[None]],
+        clear_qos_callback: Callable[[], None],
         connect_properties: dict,
-        subscriptions_getter: Callable[[], List],
+        subscriptions_getter: Callable[[], List[Subscription]],
         remove_message_callback: Callable[[int], None],
         send_command_with_mid_callback: Callable[..., None],
         receive_maximum: int = 65535,
@@ -374,7 +375,7 @@ class MqttPackageHandler(EventCallbackMixin):
         if session_present:
             asyncio.ensure_future(self._resend_qos_callback())
         else:
-            asyncio.ensure_future(self._clear_qos_callback())
+            self._clear_qos_callback()
 
         self._logger.debug(
             "[MqttPackageHandler] session_present: %s, result: %s",
