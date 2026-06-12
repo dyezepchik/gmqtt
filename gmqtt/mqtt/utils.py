@@ -1,23 +1,33 @@
 import asyncio
-import struct
 import logging
-
+import struct
+from copy import deepcopy
+from dataclasses import dataclass, field
 from functools import partial
+from typing import Callable
 
+from .constants import DEFAULT_CONFIG, MQTTv50
 
 logger = logging.getLogger(__name__)
 
 
-class Singleton(type):
-    _instances = {}
+@dataclass
+class ConnectionState:
+    protocol_version: int = MQTTv50
+    config: dict = field(default_factory=lambda: deepcopy(DEFAULT_CONFIG))
+    failed_connections: int = 0
+    reconnecting_now: bool = False
 
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
 
+class IdGenerator:
+    """Allocator for outbound MQTT packet identifiers (PUBLISH/SUBSCRIBE/UNSUBSCRIBE).
 
-class IdGenerator(object, metaclass=Singleton):
+    One instance per Client. The pool is NOT a process-wide singleton — two
+    Clients in the same process must have independent pools, and inbound mids
+    from the broker live in a different namespace and must never be passed to
+    free_id.
+    """
+
     def __init__(self, max=65536):
         self._max = max
         self._used_ids = set()
@@ -28,7 +38,9 @@ class IdGenerator(object, metaclass=Singleton):
 
         while not done:
             if len(self._used_ids) >= self._max - 1:
-                raise OverflowError("All ids has already used. May be your QoS query is full.")
+                raise OverflowError(
+                    "All ids has already used. May be your QoS queue is full."
+                )
 
             self._last_used_id += 1
 
@@ -45,7 +57,7 @@ class IdGenerator(object, metaclass=Singleton):
         return self._last_used_id
 
     def free_id(self, id):
-        logger.debug('FREE MID: %s', id)
+        logger.debug("FREE MID: %s", id)
         if id not in self._used_ids:
             return
 
@@ -64,7 +76,7 @@ def pack_variable_byte_integer(value):
         value, b = divmod(value, 128)
         if value > 0:
             b |= 0x80
-        remaining_bytes.extend(struct.pack('!B', b))
+        remaining_bytes.extend(struct.pack("!B", b))
         if value <= 0:
             break
     return remaining_bytes
@@ -78,38 +90,39 @@ def unpack_variable_byte_integer(bts):
         b = bts[i]
         value += (b & 0x7F) * multiplier
         if multiplier > 2097152:  # 128 * 128 * 128
-            raise ValueError('Malformed Variable Byte Integer')
+            raise ValueError("Malformed Variable Byte Integer")
         multiplier *= 128
         if b & 0x80 == 0:
             break
         i += 1
-    return value, bts[i + 1:]
+    return value, bts[i + 1 :]
 
 
 def unpack_utf8(bytes_array):
-    str_len, = struct.unpack('!H', bytes_array[:2])
-    value = bytes_array[2:2 + str_len].decode('utf-8')
-    left_str = bytes_array[2 + str_len:]
+    (str_len,) = struct.unpack("!H", bytes_array[:2])
+    value = bytes_array[2 : 2 + str_len].decode("utf-8")
+    left_str = bytes_array[2 + str_len :]
     return value, left_str
 
 
 def pack_utf8(data):
     packet = bytearray()
     if isinstance(data, str):
-        data = data.encode('utf-8')
+        data = data.encode("utf-8")
     packet.extend(struct.pack("!H", len(data)))
     packet.extend(data)
     return packet
 
 
-def iscoroutinefunction_or_partial(object):
-    if isinstance(object, partial):
-        object = object.func
-    return asyncio.iscoroutinefunction(object)
+def is_coroutine_function_or_partial(obj: Callable):
+    while isinstance(obj, partial):
+        obj = obj.func
+
+    return asyncio.iscoroutinefunction(obj)
 
 
 def run_coroutine_or_function(func, *args, callback=None, **kwargs):
-    if iscoroutinefunction_or_partial(func):
+    if is_coroutine_function_or_partial(func):
         f = asyncio.ensure_future(func(*args, **kwargs))
         if callback is not None:
             f.add_done_callback(callback)

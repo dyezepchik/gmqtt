@@ -1,9 +1,11 @@
 *.pyc
 *.pyo
 .idea
+.env
 gmqtt.egg-info
 dist/
 build/
+
 # virtualenvs
 env/
 venv/
@@ -13,3 +15,6 @@ pyenv/
 .coverage
 .pytest_cache/
 htmlcov/
+
+# agents
+CLAUDE.md

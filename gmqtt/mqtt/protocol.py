@@ -1,11 +1,12 @@
 import asyncio
 import logging
 import time
-
 import sys
 
 from . import package
-from .constants import MQTTv50, MQTTCommands
+from .constants import MQTTCommands
+from .package import Package
+from .utils import ConnectionState, IdGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -95,15 +96,22 @@ class BaseMQTTProtocol(_StreamReaderProtocolCompatibilityMixin, asyncio.StreamRe
 
 class MQTTProtocol(BaseMQTTProtocol):
     proto_name = b'MQTT'
-    proto_ver = MQTTv50
 
-    def __init__(self, *args, **kwargs):
-        super(MQTTProtocol, self).__init__(*args, **kwargs)
+    def __init__(self, *args, connection_state: ConnectionState, id_generator: IdGenerator,  **kwargs):
+        super().__init__(*args, **kwargs)
+        self._connection_state = connection_state
         self._queue = asyncio.Queue()
-
         self._disconnect = asyncio.Event()
-
         self._read_loop_future = None
+        self.id_generator = id_generator
+
+    @property
+    def proto_ver(self) -> int:
+        return self._connection_state.protocol_version
+
+    @proto_ver.setter
+    def proto_ver(self, value: int):
+        self._connection_state.protocol_version = value
 
     def connection_made(self, transport: asyncio.Transport):
         super().connection_made(transport)
@@ -152,7 +160,7 @@ class MQTTProtocol(BaseMQTTProtocol):
                                                          proto_ver=self.proto_ver)
         self.write_data(pkg)
 
-    def _read_packet(self, data):
+    def _read_packet(self, data: bytes):
         parsed_size = 0
         raw_size = len(data)
         data_size = raw_size
@@ -192,12 +200,12 @@ class MQTTProtocol(BaseMQTTProtocol):
             command = data[parsed_size]
             start = parsed_size + header_size
             end = start + payload_size
-            packet = data[start:end]
+            pkg = Package(command, data[start:end])
 
             data_size -= header_size + payload_size
             parsed_size += header_size + payload_size
 
-            self._connection.put_package((command, packet))
+            self._connection.put_package(pkg)
 
         return parsed_size
 
@@ -214,15 +222,15 @@ class MQTTProtocol(BaseMQTTProtocol):
                     logger.debug("[RECV EMPTY] Connection will be reset automatically.")
                     break
                 buf = buf[parsed_size:]
-            except ConnectionResetError as exc:
-                # This connection will be closed, because we received the empty data.
-                # So we can safely break the while
+            except ConnectionResetError:
+                # This connection will be closed, because we received empty data.
+                # So we can safely break the while loop
                 logger.debug("[RECV EMPTY] Connection will be reset automatically.")
                 break
 
     def connection_lost(self, exc):
-        super(MQTTProtocol, self).connection_lost(exc)
-        self._connection.put_package((MQTTCommands.DISCONNECT, b''))
+        super().connection_lost(exc)
+        self._connection.put_package(Package(MQTTCommands.DISCONNECT, b''))
 
         if self._read_loop_future is not None:
             self._read_loop_future.cancel()
