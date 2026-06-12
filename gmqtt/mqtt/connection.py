@@ -1,11 +1,16 @@
 import asyncio
 import logging
 import time
+from functools import partial
 
+from .handler import MqttPackageHandler
 from .protocol import MQTTProtocol
+from .package import Package
+from .utils import ConnectionState
 
-class MQTTConnection(object):
-    def __init__(self, transport: asyncio.Transport, protocol: MQTTProtocol, clean_session: bool, keepalive: int, logger=None):
+class MQTTConnection:
+    def __init__(self, transport: asyncio.Transport, protocol: MQTTProtocol, clean_session: bool, keepalive: int,
+                 package_handler: MqttPackageHandler, logger=None):
         self._transport = transport
         self._protocol = protocol
         self._protocol.set_connection(self)
@@ -20,12 +25,15 @@ class MQTTConnection(object):
         self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive / 2, self._keep_connection)
 
         self._logger = logger or logging.getLogger(__name__)
+        self._handler = package_handler
 
     @classmethod
-    async def create_connection(cls, host, port, ssl, clean_session, keepalive, loop=None, logger=None):
+    async def create_connection(cls, host, port, ssl, clean_session, keepalive, connection_state: ConnectionState,
+                                package_handler: MqttPackageHandler, loop=None, logger=None):
         loop = loop or asyncio.get_event_loop()
-        transport, protocol = await loop.create_connection(MQTTProtocol, host, port, ssl=ssl)
-        return MQTTConnection(transport, protocol, clean_session, keepalive, logger=logger)
+        protocol_factory = partial(MQTTProtocol, connection_state=connection_state, id_generator=package_handler.id_generator)
+        transport, protocol = await loop.create_connection(protocol_factory, host, port, ssl=ssl)
+        return MQTTConnection(transport, protocol, clean_session, keepalive, package_handler=package_handler, logger=logger)
 
     def _keep_connection(self):
         if self.is_closing() or not self._keepalive:
@@ -42,9 +50,9 @@ class MQTTConnection(object):
             self._send_ping_request()
         self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive / 2, self._keep_connection)
 
-    def put_package(self, pkg):
+    def put_package(self, pkg: Package):
         self._last_data_in = time.monotonic()
-        self._handler(*pkg)
+        self._handler(pkg)
 
     def send_package(self, package):
         # This is not blocking operation, because transport place the data
@@ -82,14 +90,17 @@ class MQTTConnection(object):
     def _send_ping_request(self):
         self._protocol.send_ping_request()
 
-    def set_handler(self, handler):
-        self._handler = handler
-
     async def close(self):
         if self._keep_connection_callback:
             self._keep_connection_callback.cancel()
         self._transport.close()
-        await self._protocol.closed
+        try:
+            await self._protocol.closed
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as exc:
+            # The broker closed the socket forcefully (common on TLS after DISCONNECT).
+            # App called the close(), so the connection is gone either way.
+            # The WARNING is already emitted by connection_lost(); no need to re-raise.
+            self._logger.debug("[CLOSE] suppressed transport error after intentional close: %s", exc)
 
     def is_closing(self):
         return self._transport.is_closing()
